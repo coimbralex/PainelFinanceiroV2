@@ -1,3 +1,4 @@
+
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
 from datetime import date, datetime, timedelta
@@ -18,6 +19,8 @@ card_icon = {
     
 }
 
+graph_margin = dict(l=25, r=25, t=25, b=0)
+
 # =========  Layout  =========== #
 layout = dbc.Col([
         dbc.Row([
@@ -25,7 +28,7 @@ layout = dbc.Col([
                         dbc.CardGroup([
                                 dbc.Card([
                                         html.Legend('Saldo'),
-                                        html.H5('R$ 5400', id='p-saldo-dashboards', style={})
+                                        html.H5('R$ 1000', id='p-saldo-dashboards', style={})
                                 ], style={'padding-left': '20px', 'padding-top': '10px'}),
                                 dbc.Card(
                                         html.Div(className='fa fa-university', style=card_icon),
@@ -39,7 +42,7 @@ layout = dbc.Col([
                 dbc.Col([
                         dbc.CardGroup([
                                 dbc.Card([
-                                        html.Legend('receita'),
+                                        html.Legend('Receita'),
                                         html.H5('R$ 10000', id='p-receita-dashboards', style={})
                                 ], style={'padding-left': '20px', 'padding-top': '10px'}),
                                 dbc.Card(
@@ -53,7 +56,7 @@ layout = dbc.Col([
                 dbc.Col([
                         dbc.CardGroup([
                                 dbc.Card([
-                                        html.Legend('despesa'),
+                                        html.Legend('Despesa'),
                                         html.H5('R$ 4600', id='p-despesa-dashboards', style={})
                                 ], style={'padding-left': '20px', 'padding-top': '10px'}),
                                 dbc.Card(
@@ -83,7 +86,7 @@ layout = dbc.Col([
                                 html.Label("Categorias das despesas"),
                                 html.Div(
                                         dcc.Dropdown(
-                                        id="dropdown-despesas",
+                                        id="dropdown-despesa",
                                         clearable=False,
                                         style={"width": "100%"},
                                         persistence=True,
@@ -118,3 +121,95 @@ layout = dbc.Col([
      
 
 # =========  Callbacks  =========== #
+
+#FiltroReceita
+@app.callback(
+        
+        [Output("dropdown-receita", "options"),
+        Output("dropdown-receita", "value"),
+        Output("p-receita-dashboards", "children")],
+
+        Input("store-receita","data"))
+
+def populate_dropdownvalues(data):
+    df = pd.DataFrame(data)
+    valor = df['Valor'].sum()
+    val = df.Categoria.unique().tolist()
+
+    return ([{"label": x, "value": x} for x in val], val, f"R$ {valor}")
+    
+
+#FiltroDespesa
+@app.callback(
+        
+        [Output("dropdown-despesa", "options"),
+        Output("dropdown-despesa", "value"),
+        Output("p-despesa-dashboards", "children")],
+
+        Input("store-despesa","data"))
+
+def populate_dropdownvalues(data):
+        df = pd.DataFrame(data)
+        valor = df['Valor'].sum()
+        val = df.Categoria.unique().tolist()
+
+        return ([{"label": x, "value": x} for x in val], val, f"R$ {valor}") 
+
+#Atualiza Saldo
+@app.callback(
+
+        Output("p-saldo-dashboards", "children"),
+
+        [Input("store-despesa", "data"),
+         Input("store-receita", "data")])
+
+def saldo_total(despesa, receita):
+
+        df_despesa = pd.DataFrame(despesa)
+        df_receita = pd.DataFrame(receita)
+
+        valor = df_receita['Valor'].sum() - df_despesa['Valor'].sum()
+
+        return f"R$ {valor}"
+
+#Gráfico
+@app.callback(
+        
+        Output("graph1", "figure"),
+
+        [Input('store-despesa', 'data'),
+         Input('store-receita', 'data'),
+         Input("dropdown-despesa", "value"),
+         Input("dropdown-receita", "value",)]
+)
+def update_output(data_despesa, data_receita, despesa, receita):
+       
+       df_despesa = pd.DataFrame(data_despesa).set_index("Data")[["Valor"]]
+       df_ds = df_despesa.groupby("Data").sum().rename(columns={"Valor": "Despesa"})
+
+       df_receita = pd.DataFrame(data_receita).set_index("Data")[["Valor"]]
+       df_rc = df_receita.groupby("Data").sum().rename(columns={"Valor": "Receita"})
+
+       df_acum = df_ds.join(df_rc, how="outer").fillna(0)
+       df_acum["Acum"] = df_acum["Receita"] - df_acum ["Despesa"]
+       df_acum["Acum"] = df_acum["Acum"].cumsum()
+
+       fig = go.Figure()
+       fig.add_trace(go.Scatter(name="Fluxo de caixa", x=df_acum.index, y=df_acum["Acum"], mode="lines"))
+       
+       fig.update_layout(margin=graph_margin, height = 400)
+
+#  fig.update_layout(paper_bgcolor='rgba(0,0,0,)', plot_bgcolor='rgba(0,0,0,0)')
+
+       return fig.to_dict()
+
+@app.callback(
+       Output('graph2', 'figure'),
+       
+       [Input('store-receita', 'data'),
+        Input('store-despesa', 'data'),
+        Input('dropdown-receita', 'value'),
+        Input('dropdown-despesa', 'value'),
+        Input('date-picker-config', 'start_date'),
+        Input('date-picker-config', 'end_date'), ]
+)
